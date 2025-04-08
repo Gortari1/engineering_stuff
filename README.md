@@ -1,6 +1,6 @@
 # 📊 Analisador de Qualidade de Dados via SFTP
 
-Este projeto é um script Python que se conecta a um servidor SFTP, baixa arquivos `.csv` do dia atual e realiza uma análise automatizada de qualidade dos dados, gerando relatórios salvos localmente em formato `.csv` com codificação UTF-8.
+Este projeto é um script Python que se conecta a um servidor SFTP, baixa arquivos `.csv` do dia atual e realiza uma análise automatizada de qualidade dos dados, gerando relatórios salvos localmente em formato `.csv` com codificação UTF-8. Lembre-se de ajustar os parametros de analise, nomes de coluna, arquivos e path de acordo com sua necessidade.
 
 ---
 

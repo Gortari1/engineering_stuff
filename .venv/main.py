@@ -24,15 +24,15 @@ nomes_arquivos = [
     f'contact_i_{data_hoje}.csv'
 ]
 
-# === GARANTIR PASTA LOCAL ===
+# >>> GARANTIR PASTA LOCAL <<<
 os.makedirs(LOCAL_SAVE_PATH, exist_ok=True)
 
-# === CONEXÃO COM SFTP ===
+# >>> CONEXÃO COM SFTP <<<
 transport = paramiko.Transport((SFTP_HOST, SFTP_PORT))
 transport.connect(username=SFTP_USER, password=SFTP_PASSWORD)
 sftp = paramiko.SFTPClient.from_transport(transport)
 
-# === FUNÇÃO DE ANÁLISE ===
+# >>> FUNÇÃO DE ANÁLISE <<<
 def analisar_csv(df):
     total = len(df)
     faltantes = df.isnull().sum()
@@ -48,7 +48,7 @@ def analisar_csv(df):
     birth_ausentes = df['Birthdate'].isnull().sum() if 'Birthdate' in df.columns else 0
     return relatorio, total, nomes_invalidos, birth_ausentes
 
-# === PROCESSAR CADA ARQUIVO ESPERADO ===
+# >>> PROCESSA CADA ARQUIVO ESPERADO <<<
 for arquivo in nomes_arquivos:
     try:
         remote_file = REMOTE_PATH + arquivo
@@ -78,6 +78,6 @@ for arquivo in nomes_arquivos:
     except Exception as e:
         print(f"❌ Erro ao processar {arquivo}: {e}")
 
-# === FECHAR CONEXÃO ===
+# >>> FECHAR CONEXÃO <<<
 sftp.close()
 transport.close()

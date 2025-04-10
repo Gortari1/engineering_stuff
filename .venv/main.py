@@ -1,83 +1,101 @@
 import pandas as pd
 import paramiko
 import os
+import streamlit as st
 from datetime import datetime
 from dotenv import load_dotenv
-import os
+import time
 
 load_dotenv()  # Carrega as variáveis do .env
 
-# === CONFIGURAÇÕES ===
+# >>> CONFIGURAÇÕES <<<
 SFTP_HOST = os.getenv('SFTP_HOST')
 SFTP_PORT = int(os.getenv('SFTP_PORT', 22))
 SFTP_USER = os.getenv('SFTP_USER')
 SFTP_PASSWORD = os.getenv('SFTP_PASSWORD')
-REMOTE_PATH = '/import/ImportacaoDadosSFMC/'
-LOCAL_SAVE_PATH = './arquivos_analisados/'
+REMOTE_BASE_PATH = 'source'
+LOCAL_SAVE_PATH = 'sink'
 
-# === GERA A DATA DE HOJE ===
-data_hoje = datetime.today().strftime('%Y%m%d')
-nomes_arquivos = [
-    f'account_u_{data_hoje}.csv',
-    f'account_i_{data_hoje}.csv',
-    f'contact_u_{data_hoje}.csv',
-    f'contact_i_{data_hoje}.csv'
-]
+st.title("DATA CHECKER")  # Interface title
 
-# >>> GARANTIR PASTA LOCAL <<<
-os.makedirs(LOCAL_SAVE_PATH, exist_ok=True)
+# Barra de carregamento
+progress_bar = st.progress(0)
 
-# >>> CONEXÃO COM SFTP <<<
-transport = paramiko.Transport((SFTP_HOST, SFTP_PORT))
-transport.connect(username=SFTP_USER, password=SFTP_PASSWORD)
-sftp = paramiko.SFTPClient.from_transport(transport)
+# >>> SOLICITA DATA DO USUÁRIO <<<
+data_usuario = st.text_input("Informe a data no formato YYYYMMDD:")
+if st.button('Run Data Check') and data_usuario:
+    REMOTE_PATH = f"{REMOTE_BASE_PATH}{data_usuario}/"
+    nomes_arquivos = [
+        f'account_u_{data_usuario}.zip',
+        f'account_i_{data_usuario}.zip',
+        f'contact_u_{data_usuario}.zip',
+        f'contact_i_{data_usuario}.zip',
+        f'consent_u_{data_usuario}.zip',
+        f'consent_i_{data_usuario}.zip',
+        f'result_success_{data_usuario}_1200.csv',
+        f'result_error_{data_usuario}_1200.csv',
+    ]
 
-# >>> FUNÇÃO DE ANÁLISE <<<
-def analisar_csv(df):
-    total = len(df)
-    faltantes = df.isnull().sum()
-    porcentagem = (faltantes / total * 100).round(2)
-    relatorio = pd.DataFrame({'Valores Faltantes': faltantes, '% Faltantes': porcentagem})
+    os.makedirs(LOCAL_SAVE_PATH, exist_ok=True)
 
-    # Compor nome completo
-    df['FullName'] = (df.get('FirstName', '') + ' ' + df.get('LastName', '')).fillna('').str.strip()
-    nomes_invalidos = df['FullName'].str.upper().isin([
-        'NOME NÂO DISPONÍVEL', 'NOMENÃODISPONÍVEL', 'NOMENÃODISPONIVEL', 'NOMENÃODISPONÍVEL'
-    ]).sum()
+    progress_step = 100 / len(nomes_arquivos)
+    current_progress = 0
 
-    birth_ausentes = df['Birthdate'].isnull().sum() if 'Birthdate' in df.columns else 0
-    return relatorio, total, nomes_invalidos, birth_ausentes
-
-# >>> PROCESSA CADA ARQUIVO ESPERADO <<<
-for arquivo in nomes_arquivos:
     try:
-        remote_file = REMOTE_PATH + arquivo
-        local_file = os.path.join(LOCAL_SAVE_PATH, arquivo)
+        transport = paramiko.Transport((SFTP_HOST, SFTP_PORT))
+        transport.connect(username=SFTP_USER, password=SFTP_PASSWORD)
+        sftp = paramiko.SFTPClient.from_transport(transport)
+# regras de analise dos docs
+        def analisar_csv(df):
+            total = len(df)
+            erros = 0
+            detalhe_erros = []
 
-        # Baixar do servidor
-        sftp.get(remote_file, local_file)
-        print(f"✅ Arquivo baixado: {arquivo}")
+            for index, row in df.iterrows():
+                if pd.isnull(row).any():
+                    erros += 1
+                    detalhe_erros.append(f"Erro na linha {index}")
 
-        # Analisar
-        df = pd.read_csv(local_file)
-        relatorio, total, nomes_inv, birth_missing = analisar_csv(df)
+            return total, erros, (erros / total) * 100, detalhe_erros
 
-        print(f"📊 Análise de {arquivo}")
-        print(f" - Total de registros: {total}")
-        print(f" - Nomes inválidos: {nomes_inv}")
-        print(f" - Datas de nascimento ausentes: {birth_missing}")
+        relatorio_geral = []
 
-        # Salvar relatório
-        nome_saida = arquivo.replace('.csv', '_analisado.csv')
-        caminho_saida = os.path.join(LOCAL_SAVE_PATH, nome_saida)
-        relatorio.to_csv(caminho_saida, encoding='utf-8')
-        print(f"📝 Relatório salvo em: {caminho_saida}\n")
+        for arquivo in nomes_arquivos:
+            try:
+                remote_file = REMOTE_PATH + arquivo
+                local_file = os.path.join(LOCAL_SAVE_PATH, arquivo)
 
-    except FileNotFoundError:
-        print(f"⚠️ Arquivo não encontrado no servidor: {arquivo}")
-    except Exception as e:
-        print(f"❌ Erro ao processar {arquivo}: {e}")
+                inicio = time.time()
+                sftp.get(remote_file, local_file)
+                st.text(f"🆗 Arquivo baixado: {arquivo}")
 
-# >>> FECHAR CONEXÃO <<<
-sftp.close()
-transport.close()
+                df = pd.read_csv(local_file)
+                total, total_erros, pct_erros, detalhes = analisar_csv(df)
+                fim = time.time()
+                duracao = time.strftime("%M:%S", time.gmtime(fim - inicio))
+
+                relatorio_geral.append({
+                    "arquivo": arquivo,
+                    "total": total,
+                    "erros": total_erros,
+                    "pct_erros": pct_erros,
+                    "detalhes": detalhes
+                })
+
+                current_progress += progress_step
+                progress_bar.progress(int(current_progress))
+
+            except FileNotFoundError:
+                st.error(f"⚠️ Arquivo não encontrado no servidor: {arquivo}")
+            except Exception as e:
+                st.error(f"💀 Erro ao processar {arquivo}: {e}")
+
+        if relatorio_geral:
+            df_geral = pd.DataFrame(relatorio_geral)
+            caminho_geral = os.path.join(LOCAL_SAVE_PATH, f'relatorio_geral_{data_usuario}.csv')
+            df_geral.to_csv(caminho_geral, index=False, encoding='utf-8')
+            st.success(f"📋 Relatório consolidado salvo em: {caminho_geral}")
+
+    finally:
+        sftp.close()
+        transport.close()
